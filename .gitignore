@@ -1,22 +1,17 @@
-name: Mindful Scraper Run
-on:
-  schedule:
-    - cron: '0 * * * *' # This runs it every hour on the hour
-  workflow_dispatch: # This adds a button so you can run it manually to test
+# Python junk files
+__pycache__/
+*.py[cod]
+*$py.class
 
-jobs:
-  run-scraper:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v2
-      - name: Setup Python
-        uses: actions/setup-python@v2
-        with:
-          python-version: '3.9'
-      - name: Install Requirements
-        run: pip install requests
-      - name: Execute Scraper
-        env:
-          ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
-        run: python scraper.py
+# Environments
+.venv/
+venv/
+ENV/
+
+# Secrets & Config
+.env
+*.log
+
+# OS junk
+.DS_Store
+Thumbs.db
