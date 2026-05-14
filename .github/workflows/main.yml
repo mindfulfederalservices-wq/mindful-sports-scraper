@@ -10,13 +10,18 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v2
+
       - name: Setup Python
         uses: actions/setup-python@v2
         with:
           python-version: '3.9'
+
       - name: Install Requirements
-        run: pip install requests pandas
+        # This is the "Magic" line that fixes your gspread error
+        run: pip install -r requirements.txt
+
       - name: Execute Scraper
         env:
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
         run: python scraper.py
