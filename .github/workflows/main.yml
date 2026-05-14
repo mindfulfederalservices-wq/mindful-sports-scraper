@@ -1,0 +1,22 @@
+name: Mindful Scraper Run
+on:
+  schedule:
+    - cron: '0 * * * *' # This runs every hour on the hour
+  workflow_dispatch: # This adds a manual "Play" button
+
+jobs:
+  run-scraper:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v2
+      - name: Setup Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.9'
+      - name: Install Requirements
+        run: pip install requests pandas
+      - name: Execute Scraper
+        env:
+          ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
+        run: python scraper.py
