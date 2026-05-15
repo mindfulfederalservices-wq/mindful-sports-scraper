@@ -1,17 +1,9 @@
-We need to make sure your .github/workflows/main.yml file is properly handling the security keys and the hourly automated run.
-
-Since we are using the Spreadsheet Name directly in the Python script now (client.open("Mindful Sports Scraper Data")), your workflow file doesn't strictly need to pass a SPREADSHEET_ID variable anymore. However, it absolutely must pass your GOOGLE_CREDENTIALS and your ODDS_API_KEY so your script can fetch the line data without crashing!
-
-Here is the exact code you should paste into your .github/workflows/main.yml file:
-
-YAML
 name: Sports Scraper Automation Loop
 
 on:
   schedule:
-    # Runs every hour, on the hour (UTC time)
     - cron: '0 * * * *'
-  workflow_dispatch: # Allows you to manually click a button to run it anytime
+  workflow_dispatch: # 🌟 This line is what creates the "Run workflow" button!
 
 jobs:
   run-scraper:
@@ -25,7 +17,7 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: '3.10'
-        cache: 'pip' # Automatically caches packages to speed up your runs
+        cache: 'pip'
 
     - name: Install Scraper Dependencies
       run: |
@@ -33,8 +25,7 @@ jobs:
         pip install -r requirements.txt
 
     - name: Execute Scraper and Inject Sheets Data
-      # Inject your secure GitHub Secrets straight into your script's environment
       env:
         GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
         ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
-      run: python scraper.py
+      run: python scraper.py  # 🌟 This ensures your scraper runs, not a "main" file!
