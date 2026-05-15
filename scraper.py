@@ -5,18 +5,23 @@ import gspread
 from google.oauth2.service_account import Credentials
 
 # --- 1. GOOGLE SHEETS SETUP ---
-# This part uses the secret you saved in GitHub to log into your Sheet
 try:
     scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
-    # Get the big block of text from GitHub Secrets
     creds_json = os.environ.get("GOOGLE_CREDENTIALS")
     creds_dict = json.loads(creds_json)
     creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
     client = gspread.authorize(creds)
     
-    # Open your sheet by name (Make sure this matches exactly!)
-    sheet = client.open("Mindful_Sports_Data").sheet1
+    # 🌟 FIXED: Updated to your exact new spreadsheet name
+    sheet = client.open("Mindful Sports Scraper Data").sheet1
     print("Successfully connected to Google Sheets!")
+    
+    # 🌟 NEW: Set up clean column headers, clear old data, and write headers to Row 1
+    headers = ["Team", "Opponent", "Bet Type", "Line", "Best Odds", "Sportsbook", "Edge %"]
+    sheet.clear()
+    sheet.append_row(headers)
+    print("Sheet cleared and column headers initialized.")
+
 except Exception as e:
     print(f"Google Sheets Connection Error: {e}")
     sheet = None
@@ -48,16 +53,29 @@ def get_value_picks():
         if len(bookmakers) > 1:
             try:
                 # Logic to find the price gap
+                bookie1 = bookmakers[0]['title']
                 price1 = bookmakers[0]['markets'][0]['outcomes'][0]['price']
                 price2 = bookmakers[1]['markets'][0]['outcomes'][0]['price']
-                diff = abs(price1 - price2)
+                diff = round(abs(price1 - price2), 2)
+                
+                # Simple placeholder calculation for edge percentage
+                edge_pct = f"{round((diff / price1) * 100, 1)}%"
                 
                 if diff > 0.15: 
                     print(f"🚨 VALUE ALERT: {home_team} vs {away_team}")
                     
                     # --- 3. SEND TO SHEET ---
                     if sheet:
-                        sheet.append_row([home_team, away_team, price1, price2, diff])
+                        # 🌟 FIXED: Mapping data directly to match your column layout
+                        sheet.append_row([
+                            home_team,    # Column A: Team
+                            away_team,    # Column B: Opponent
+                            "Moneyline",  # Column C: Bet Type
+                            "N/A",        # Column D: Line
+                            price1,       # Column E: Best Odds
+                            bookie1,      # Column F: Sportsbook
+                            edge_pct      # Column G: Edge %
+                        ])
                         print(f"Data sent to sheet for {home_team}!")
                     else:
                         print("Sheet not connected, skipping upload.")
