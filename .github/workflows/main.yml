@@ -16,7 +16,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-with: '3.10'
+          python-version: '3.10'  # Fixed: Correct argument name
 
       - name: Install dependencies
         run: |
