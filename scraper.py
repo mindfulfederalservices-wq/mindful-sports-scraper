@@ -32,7 +32,6 @@ BASE44_URL = os.environ.get("BASE44_APP_URL")
 BASE44_KEY = os.environ.get("BASE44_API_KEY")
 API_KEY = os.environ.get("ODDS_API_KEY") 
 
-# 🌟 CHANGED TO "live" SO THE NUMBERS ARE DYNAMIC, NOT STATIC
 SPORT = "live" 
 REGIONS = "us"
 MARKETS = "h2h,spreads"
@@ -42,7 +41,7 @@ def get_value_picks():
         print("Error: No Odds API Key found. Check your GitHub Secrets.")
         return
 
-    # 🌟 CACHE BUSTER: Keeps the server from serving stale, "fake" numbers
+    # CACHE BUSTER: Keeps the server from serving stale, "fake" numbers
     nocache_ts = int(time.time())
     url = f"https://api.the-odds-api.com/v4/sports/{SPORT}/odds/?apiKey={API_KEY}&regions={REGIONS}&markets={MARKETS}&_ts={nocache_ts}"
     
@@ -52,8 +51,22 @@ def get_value_picks():
         print(f"Failed to fetch real-time odds data: {e}")
         return
     
-    if isinstance(response, dict) and "msg" in response:
-        print(f"API Error: {response['msg']}")
+    # 🌟 CRASH PROTECTION FIX: Verify that the API response is actually a valid list of matches
+    if isinstance(response, dict):
+        if "msg" in response:
+            print(f"API Notification: {response['msg']}")
+            return
+        else:
+            print(f"API returned an unexpected dictionary format: {response}")
+            return
+            
+    if not isinstance(response, list):
+        print(f"API Error: Expected a list of games, but received: {type(response)}")
+        print(f"Response Content: {response}")
+        return
+
+    if len(response) == 0:
+        print("No active live-action games found in play right now. Skipping upload.")
         return
 
     # Prepare authorization headers for Base44 app stream
@@ -64,14 +77,19 @@ def get_value_picks():
             "Content-Type": "application/json"
         }
 
+    success_count = 0
+
     for game in response:
+        # Extra safeguard: ensure individual array elements are clean dictionary data objects
+        if not isinstance(game, dict):
+            continue
+            
         home_team = game.get('home_team')
         away_team = game.get('away_team')
         bookmakers = game.get('bookmakers', [])
         
         if len(bookmakers) > 1:
             try:
-                # Target the market data structures
                 bookie1 = bookmakers[0]['title']
                 price1 = bookmakers[0]['markets'][0]['outcomes'][0]['price']
                 price2 = bookmakers[1]['markets'][0]['outcomes'][0]['price']
@@ -79,20 +97,20 @@ def get_value_picks():
                 
                 edge_pct = f"{round((diff / price1) * 100, 1)}%"
                 
-                # Dropped discrepancy threshold to account for rapid in-play shifts
+                # Check for live line discrepancies
                 if diff > 0.05: 
                     print(f"🚨 REAL REAL-TIME ALERT: {home_team} vs {away_team}")
                     
                     # --- 3. SEND TO GOOGLE SHEETS BACKLOG ---
                     if sheet:
                         sheet.append_row([
-                            home_team,    # Column A: Team
-                            away_team,    # Column B: Opponent
-                            "Live Moneyline", # Column C: Bet Type
-                            "N/A",        # Column D: Line
-                            price1,       # Column E: Best Odds
-                            bookie1,      # Column F: Sportsbook
-                            edge_pct      # Column G: Edge %
+                            home_team,    
+                            away_team,    
+                            "Live Moneyline", 
+                            "N/A",        
+                            price1,       
+                            bookie1,      
+                            edge_pct      
                         ])
                         print(f"Data pushed to Sheets for {home_team}!")
 
@@ -112,6 +130,7 @@ def get_value_picks():
                         try:
                             b44_resp = requests.post(BASE44_URL, json=game_payload, headers=base44_headers)
                             if b44_resp.status_code in [200, 201]:
+                                success_count += 1
                                 print(f"✅ Real-time row pushed cleanly to Base44 dashboard.")
                             else:
                                 print(f"⚠️ Base44 rejected transmission with status: {b44_resp.status_code}")
@@ -120,6 +139,8 @@ def get_value_picks():
 
             except (IndexError, KeyError):
                 continue
+
+    print(f"\n⚡ Run Complete. Successfully pushed {success_count} real-time updates to Base44!")
 
 if __name__ == "__main__":
     print("Starting Mindful Sports Scraper Live Production Build...")
