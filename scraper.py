@@ -32,7 +32,6 @@ BASE44_URL = os.environ.get("BASE44_APP_URL")
 BASE44_KEY = os.environ.get("BASE44_API_KEY")
 API_KEY = os.environ.get("ODDS_API_KEY") 
 
-SPORT = "live" 
 REGIONS = "us"
 MARKETS = "h2h,spreads"
 
@@ -41,9 +40,9 @@ def get_value_picks():
         print("Error: No Odds API Key found. Check your GitHub Secrets.")
         return
 
-    # CACHE BUSTER: Keeps the server from serving stale, "fake" numbers
+    # 🌟 FIXED: Using the special 'all' keyword endpoint to pull ALL active live in-play sports games
     nocache_ts = int(time.time())
-    url = f"https://api.the-odds-api.com/v4/sports/{SPORT}/odds/?apiKey={API_KEY}&regions={REGIONS}&markets={MARKETS}&_ts={nocache_ts}"
+    url = f"https://api.the-odds-api.com/v4/sports/all/odds/?apiKey={API_KEY}&regions={REGIONS}&markets={MARKETS}&_ts={nocache_ts}"
     
     try:
         response = requests.get(url).json()
@@ -51,22 +50,24 @@ def get_value_picks():
         print(f"Failed to fetch real-time odds data: {e}")
         return
     
-    # 🌟 CRASH PROTECTION FIX: Verify that the API response is actually a valid list of matches
+    # Verify that the API response is valid
     if isinstance(response, dict):
         if "msg" in response:
             print(f"API Notification: {response['msg']}")
             return
         else:
-            print(f"API returned an unexpected dictionary format: {response}")
+            print(f"API Error Response: {response}")
             return
             
     if not isinstance(response, list):
         print(f"API Error: Expected a list of games, but received: {type(response)}")
-        print(f"Response Content: {response}")
         return
 
-    if len(response) == 0:
-        print("No active live-action games found in play right now. Skipping upload.")
+    # Filter down to ONLY active live games
+    live_games = [game for game in response if isinstance(game, dict) and game.get('commence_time') and (time.time() > time.mktime(time.strptime(game.get('commence_time').split('.')[0].replace('Z',''), '%Y-%m-%dT%H:%M:%S')) - 10800)] # buffer for live status
+
+    if len(live_games) == 0:
+        print("No active live-action games found in play right now. Waiting for the next live window!")
         return
 
     # Prepare authorization headers for Base44 app stream
@@ -79,11 +80,7 @@ def get_value_picks():
 
     success_count = 0
 
-    for game in response:
-        # Extra safeguard: ensure individual array elements are clean dictionary data objects
-        if not isinstance(game, dict):
-            continue
-            
+    for game in live_games:
         home_team = game.get('home_team')
         away_team = game.get('away_team')
         bookmakers = game.get('bookmakers', [])
@@ -98,7 +95,7 @@ def get_value_picks():
                 edge_pct = f"{round((diff / price1) * 100, 1)}%"
                 
                 # Check for live line discrepancies
-                if diff > 0.05: 
+                if diff > 0.03: 
                     print(f"🚨 REAL REAL-TIME ALERT: {home_team} vs {away_team}")
                     
                     # --- 3. SEND TO GOOGLE SHEETS BACKLOG ---
