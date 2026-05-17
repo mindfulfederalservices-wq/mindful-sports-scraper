@@ -86,65 +86,83 @@ def get_value_picks():
                 try:
                     market_data = bookmakers[0]['markets'][0]
                     market_type = market_data['key']
-                    
-                    # Split Bet Type and Line dynamically to map to individual columns
-                    if market_type == 'h2h':
-                        bet_type = "Moneyline"
-                        line_val = "ML"
-                    elif market_type == 'spreads':
-                        bet_type = "Spread"
-                        pts = market_data['outcomes'][0].get('point', 0)
-                        line_val = f"+{pts}" if pts > 0 else str(pts)
-                    else:
-                        bet_type = "Pre-Match"
-                        line_val = "N/A"
-
                     bookie1 = bookmakers[0]['title']
-                    price1_decimal = market_data['outcomes'][0]['price']
-                    price2_decimal = bookmakers[1]['markets'][0]['outcomes'][0]['price']
                     
-                    # Exact Edge Percentage Calculation
-                    implied_prob1 = 1 / price1_decimal
-                    implied_prob2 = 1 / price2_decimal
-                    edge_raw = abs(implied_prob1 - implied_prob2) * 100
-                    edge_pct = round(edge_raw, 1) # Pure raw number to fix double %% glitch
-                    
-                    # Convert odds and get payout values
-                    american_num, american_str = convert_to_american(price1_decimal)
-                    profit_display = calculate_profit_on_100(american_num)
-                    
-                    if edge_raw > 1.0: 
-                        print(f"   🚨 VALUE ALIGNMENT DETECTED: {home_team} vs {away_team}")
+                    # Target both outcome choices (Index 0 and Index 1) so you get both sides of the game
+                    for outcome in market_data.get('outcomes', []):
+                        betting_team = outcome.get('name')
+                        opponent_team = away_team if betting_team == home_team else home_team
                         
-                        # --- WRITE TO GOOGLE SHEET ROW ---
-                        if sheet:
-                            sheet.append_row([
-                                home_team, 
-                                away_team, 
-                                bet_type, 
-                                line_val, 
-                                american_str, 
-                                bookie1, 
-                                edge_pct, 
-                                profit_display
-                            ])
+                        # Split Bet Type and Line dynamically to map to individual columns
+                        if market_type == 'h2h':
+                            bet_type = "Moneyline"
+                            line_val = "ML"
+                        elif market_type == 'spreads':
+                            bet_type = "Spread"
+                            pts = outcome.get('point', 0)
+                            line_val = f"+{pts}" if pts > 0 else str(pts)
+                        else:
+                            bet_type = "Pre-Match"
+                            line_val = "N/A"
 
-                        # --- LIVE ROUTING TRANSMISSION ---
-                        if BASE44_URL and BASE44_KEY:
-                            game_payload = {
-                                "team": home_team,
-                                "opponent": away_team,
-                                "bet_type": bet_type,
-                                "line": line_val,
-                                "best_odds": american_str,
-                                "sportsbook": bookie1,
-                                "edge_percentage": edge_pct,
-                                "profit_on_100_stake": profit_display
-                            }
-                            try:
-                                requests.post(BASE44_URL, json=game_payload, headers=base44_headers)
-                            except:
-                                pass
+                        price1_decimal = outcome['price']
+                        
+                        # Find matching comparison book odds to calculate true variance edge
+                        try:
+                            comp_market = bookmakers[1]['markets'][0]
+                            comp_outcomes = comp_market.get('outcomes', [])
+                            price2_decimal = next(o['price'] for o in comp_outcomes if o['name'] == betting_team)
+                        except (StopIteration, IndexError, KeyError):
+                            price2_decimal = price1_decimal
+
+                        # Exact Edge Percentage Calculation
+                        implied_prob1 = 1 / price1_decimal
+                        implied_prob2 = 1 / price2_decimal
+                        edge_raw = abs(implied_prob1 - implied_prob2) * 100
+                        edge_pct = round(edge_raw, 1)
+                        
+                        # Convert odds and get payout values
+                        american_num, american_str = convert_to_american(price1_decimal)
+                        profit_display = calculate_profit_on_100(american_num)
+                        
+                        # --- CRITICAL PRODUCTION DATA GUARD RAILS ---
+                        # Instantly skips glitched rows, dead API fields, or broken calculations
+                        if line_val == "N/A" or american_str == "N/A" or american_num == 0 or profit_display == "$0.00":
+                            print(f"   ⚠️ Row skipped due to incomplete data validation: {betting_team} vs {opponent_team}")
+                            continue
+
+                        if edge_raw > 1.0: 
+                            print(f"    🚨 VALUE ALIGNMENT DETECTED: {betting_team} (Vs {opponent_team})")
+                            
+                            # --- WRITE TO GOOGLE SHEET ROW ---
+                            if sheet:
+                                sheet.append_row([
+                                    betting_team, 
+                                    opponent_team, 
+                                    bet_type, 
+                                    line_val, 
+                                    american_str, 
+                                    bookie1, 
+                                    edge_pct, 
+                                    profit_display
+                                ])
+
+                            # --- LIVE ROUTING TRANSMISSION ---
+                            if BASE44_URL and BASE44_KEY:
+                                game_payload = {
+                                    "team": betting_team,
+                                    "opponent": opponent_team,
+                                    "bet_type": bet_type,
+                                    "line": line_val,
+                                    "best_odds": american_str,
+                                    "sportsbook": bookie1,
+                                    "edge_percentage": edge_pct,
+                                    "profit_on_100_stake": profit_display
+                                }
+                                try:
+                                    requests.post(BASE44_URL, json=game_payload, headers=base44_headers)
+                                except:
+                                    pass
 
                 except (IndexError, KeyError):
                     continue
