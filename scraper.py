@@ -127,6 +127,9 @@ def get_value_picks():
                                 if b44_resp.status_code in [200, 201]:
                                     success_count += 1
                                     print(f"    ✅ Row synced to Base44 dashboard.")
+                                else:
+                                    # This will expose the exact rejection reason in your action logs
+                                    print(f"    ❌ Base44 Rejected Data: Status {b44_resp.status_code} - {b44_resp.text}")
                             except Exception as b44_err:
                                 print(f"    ❌ Sync connection dropped: {b44_err}")
 
