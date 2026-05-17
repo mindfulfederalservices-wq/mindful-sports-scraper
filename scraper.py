@@ -62,6 +62,9 @@ def get_value_picks():
         return
 
     base44_headers = {"Authorization": f"Bearer {BASE44_KEY}", "Content-Type": "application/json"} if BASE44_KEY else {}
+    
+    # Master list to collect all batch data for Google Sheets
+    all_sheet_rows = []
 
     for sport_key in TARGET_SPORTS:
         print(f"\nChecking active value lines for: {sport_key}...")
@@ -91,6 +94,11 @@ def get_value_picks():
                     # Target both outcome choices (Index 0 and Index 1) so you get both sides of the game
                     for outcome in market_data.get('outcomes', []):
                         betting_team = outcome.get('name')
+                        
+                        # FORCE-IGNORE THE SOCCER TIE OUTCOME ROW ENTIRELY
+                        if not betting_team or betting_team.lower() == "draw":
+                            continue
+                            
                         opponent_team = away_team if betting_team == home_team else home_team
                         
                         # Split Bet Type and Line dynamically to map to individual columns
@@ -126,26 +134,23 @@ def get_value_picks():
                         profit_display = calculate_profit_on_100(american_num)
                         
                         # --- CRITICAL PRODUCTION DATA GUARD RAILS ---
-                        # Instantly skips glitched rows, dead API fields, or broken calculations
                         if line_val == "N/A" or american_str == "N/A" or american_num == 0 or profit_display == "$0.00":
-                            print(f"   ⚠️ Row skipped due to incomplete data validation: {betting_team} vs {opponent_team}")
                             continue
 
                         if edge_raw > 1.0: 
                             print(f"    🚨 VALUE ALIGNMENT DETECTED: {betting_team} (Vs {opponent_team})")
                             
-                            # --- WRITE TO GOOGLE SHEET ROW ---
-                            if sheet:
-                                sheet.append_row([
-                                    betting_team, 
-                                    opponent_team, 
-                                    bet_type, 
-                                    line_val, 
-                                    american_str, 
-                                    bookie1, 
-                                    edge_pct, 
-                                    profit_display
-                                ])
+                            # Append row data to our local memory cache list
+                            all_sheet_rows.append([
+                                betting_team, 
+                                opponent_team, 
+                                bet_type, 
+                                line_val, 
+                                american_str, 
+                                bookie1, 
+                                edge_pct, 
+                                profit_display
+                            ])
 
                             # --- LIVE ROUTING TRANSMISSION ---
                             if BASE44_URL and BASE44_KEY:
@@ -166,6 +171,15 @@ def get_value_picks():
 
                 except (IndexError, KeyError):
                     continue
+
+    # --- 5. SINGLE BATCH PUSH TO GOOGLE SHEETS ---
+    if sheet and all_sheet_rows:
+        try:
+            print(f"\n📥 Batch uploading {len(all_sheet_rows)} clean value alerts to Google Sheets...")
+            sheet.append_rows(all_sheet_rows)
+            print("Spreadsheet synced successfully using 1 API token credit!")
+        except Exception as sheet_err:
+            print(f"Failed to batch write rows to Sheet: {sheet_err}")
 
     print(f"\n⚡ Run Complete. Spreadsheet synced cleanly with your original Base44 columns!")
 
