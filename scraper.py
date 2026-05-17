@@ -35,13 +35,13 @@ API_KEY = os.environ.get("ODDS_API_KEY")
 REGIONS = "us"
 MARKETS = "h2h,spreads"
 
-# 🌟 LIVE MARKETS TARGET LIST
-# The API requires concrete sport tags. We iterate through the main active leagues:
+# 🌟 LIVE & UPCOMING MARKETS TARGET LIST
+# Focuses on leagues active on the board today
 TARGET_SPORTS = [
-    "basketball_nba",
     "baseball_mlb",
     "soccer_usa_mls",
-    "basketball_wnba"
+    "basketball_wnba",
+    "basketball_nba"
 ]
 
 def get_value_picks():
@@ -60,10 +60,9 @@ def get_value_picks():
 
     # Loop through our explicitly supported sports markets
     for sport_key in TARGET_SPORTS:
-        print(f"\nChecking active live lines for: {sport_key}...")
+        print(f"\nChecking active value lines for: {sport_key}...")
         
         nocache_ts = int(time.time())
-        # We target the actual valid sport directory route
         url = f"https://api.the-odds-api.com/v4/sports/{sport_key}/odds/?apiKey={API_KEY}&regions={REGIONS}&markets={MARKETS}&_ts={nocache_ts}"
         
         try:
@@ -84,30 +83,11 @@ def get_value_picks():
             print(f" -> Unexpected data type response for {sport_key}")
             continue
 
-        # Look for live in-play games by checking if the start time is past or current
-        # If games are completely ahead in the calendar, we drop them out
-        current_time_epoch = time.time()
-        
+        # Process all available games without filtering out future matchups
         for game in response:
             if not isinstance(game, dict):
                 continue
                 
-            commence_time_raw = game.get('commence_time', '')
-            if not commence_time_raw:
-                continue
-                
-            try:
-                # Parse timestamp structure to verify if it's currently live or imminent
-                clean_time = commence_time_raw.split('.')[0].replace('Z','')
-                game_start_epoch = time.mktime(time.strptime(clean_time, '%Y-%m-%dT%H:%M:%S'))
-                
-                # Filter logic: Game must have started or starting within the hour to qualify as live-action
-                if current_time_epoch < (game_start_epoch - 3600):
-                    continue  # Skip far future upcoming matches
-                    
-            except Exception:
-                pass # Fallback to check values regardless if parsing has drift
-
             home_team = game.get('home_team')
             away_team = game.get('away_team')
             bookmakers = game.get('bookmakers', [])
@@ -123,18 +103,18 @@ def get_value_picks():
                     
                     # Capture moving odds gaps
                     if diff > 0.02: 
-                        print(f"   🚨 LIVE LINE ALIGNMENT DETECTED: {home_team} vs {away_team}")
+                        print(f"   🚨 VALUE ALIGNMENT DETECTED: {home_team} vs {away_team}")
                         
                         # --- 3. GOOGLE SHEETS BACKLOG ---
                         if sheet:
-                            sheet.append_row([home_team, away_team, "Live Play", "N/A", price1, bookie1, edge_pct])
+                            sheet.append_row([home_team, away_team, "Pre-Match / Live", "N/A", price1, bookie1, edge_pct])
 
                         # --- 4. BASE44 TRANSMISSION ---
                         if BASE44_URL and BASE44_KEY:
                             game_payload = {
                                 "team": home_team,
                                 "opponent": away_team,
-                                "bet_type": "Live Play",
+                                "bet_type": "Pre-Match / Live",
                                 "line": "N/A",
                                 "best_odds": price1,
                                 "sportsbook": bookie1,
