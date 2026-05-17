@@ -1,9 +1,10 @@
 name: Mindful Sports Scraper Autopilot
 
 on:
-  schedule:
-    - cron: '*/5 * * * *'  # Runs automatically every 5 minutes
-  workflow_dispatch:       # Keeps your manual "Run workflow" button active
+  # schedule:
+  #   - cron: '*/5 * * * *'  # PAUSED: Commented out so it won't burn your 500 free monthly credits automatically
+  
+  workflow_dispatch:       # ACTIVE: Keeps your manual "Run workflow" button active for safe testing
 
 jobs:
   scrape-and-stream:
@@ -16,7 +17,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'  # Fixed: Correct argument name
+          python-version: '3.10'
 
       - name: Install dependencies
         run: |
