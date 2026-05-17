@@ -13,21 +13,21 @@ try:
     creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
     client = gspread.authorize(creds)
     
-    # Connect directly to your Mindful Sports Scraper spreadsheet
+    # Target sheet check
     sheet = client.open("Mindful Sports Scraper Data").sheet1
     print("Successfully connected to Google Sheets!")
     
-    # Set the precise column layout to match your dashboard
-    headers_layout = ["Team (vs. Opponent)", "Bet Type (Line)", "Best Odds", "Sportsbook", "Edge %", "Profit on $100 Stake"]
+    # EXACT column structure matching your original Base44 fields
+    headers_layout = ["Team", "Opponent", "Bet Type", "Line", "Best Odds", "Sportsbook", "Edge %", "Profit on $100 Stake"]
     sheet.clear()
     sheet.append_row(headers_layout)
-    print("Sheet cleared and clean layout headers initialized.")
+    print("Sheet cleared and column headers synchronized.")
 
 except Exception as e:
     print(f"Google Sheets Connection Error: {e}")
     sheet = None
 
-# --- 2. ENDPOINT CONFIGURATION ---
+# --- 2. CONFIGURATION SETUP ---
 BASE44_URL = os.environ.get("BASE44_APP_URL")
 BASE44_KEY = os.environ.get("BASE44_API_KEY")
 API_KEY = os.environ.get("ODDS_API_KEY") 
@@ -36,7 +36,7 @@ REGIONS = "us"
 MARKETS = "h2h,spreads"
 TARGET_SPORTS = ["baseball_mlb", "soccer_usa_mls", "basketball_wnba", "basketball_nba"]
 
-# --- 3. ODDS CONVERSION UTILITY ---
+# --- 3. AMERICAN ODDS CONVERSION UTILITY ---
 def convert_to_american(decimal_price):
     if not decimal_price or decimal_price <= 1.0:
         return 0, "N/A"
@@ -56,7 +56,6 @@ def calculate_profit_on_100(numeric_odds):
         return f"${profit:.2f}"
     return "$0.00"
 
-# --- 5. CORE ENGINE SCANNER ---
 def get_value_picks():
     if not API_KEY:
         print("Error: No Odds API Key found. Check GitHub Secrets.")
@@ -88,51 +87,55 @@ def get_value_picks():
                     market_data = bookmakers[0]['markets'][0]
                     market_type = market_data['key']
                     
-                    # Clean Labels for Market Type
+                    # Split Bet Type and Line dynamically to map to individual columns
                     if market_type == 'h2h':
-                        line_display = "moneyline"
+                        bet_type = "Moneyline"
+                        line_val = "ML"
                     elif market_type == 'spreads':
-                        line_val = market_data['outcomes'][0].get('point', 0)
-                        line_display = f"spread ({'+' if line_val > 0 else ''}{line_val})"
+                        bet_type = "Spread"
+                        pts = market_data['outcomes'][0].get('point', 0)
+                        line_val = f"+{pts}" if pts > 0 else str(pts)
                     else:
-                        line_display = "pre-match"
+                        bet_type = "Pre-Match"
+                        line_val = "N/A"
 
                     bookie1 = bookmakers[0]['title']
                     price1_decimal = market_data['outcomes'][0]['price']
                     price2_decimal = bookmakers[1]['markets'][0]['outcomes'][0]['price']
                     
-                    # Math Processing (Pure float sent to prevent double %% glitch)
+                    # Exact Edge Percentage Calculation
                     implied_prob1 = 1 / price1_decimal
                     implied_prob2 = 1 / price2_decimal
                     edge_raw = abs(implied_prob1 - implied_prob2) * 100
-                    edge_pct = round(edge_raw, 1) 
+                    edge_pct = round(edge_raw, 1) # Pure raw number to fix double %% glitch
                     
-                    # Convert to true American numeric/string structures
+                    # Convert odds and get payout values
                     american_num, american_str = convert_to_american(price1_decimal)
                     profit_display = calculate_profit_on_100(american_num)
                     
-                    # Structural string styling to match original dashboard vision
-                    team_matchup_display = f"{home_team} (vs. {away_team})"
-                    
                     if edge_raw > 1.0: 
-                        print(f"   🚨 VALUE ALIGNMENT DETECTED: {team_matchup_display}")
+                        print(f"   🚨 VALUE ALIGNMENT DETECTED: {home_team} vs {away_team}")
                         
-                        # --- WRITE ROW TO GOOGLE SHEET ---
+                        # --- WRITE TO GOOGLE SHEET ROW ---
                         if sheet:
                             sheet.append_row([
-                                team_matchup_display, 
-                                line_display, 
+                                home_team, 
+                                away_team, 
+                                bet_type, 
+                                line_val, 
                                 american_str, 
                                 bookie1, 
                                 edge_pct, 
                                 profit_display
                             ])
 
-                        # --- LIVE ROUTING TO BASE44 ENGINE ---
+                        # --- LIVE ROUTING TRANSMISSION ---
                         if BASE44_URL and BASE44_KEY:
                             game_payload = {
-                                "team_vs_opponent": team_matchup_display,
-                                "bet_type_line": line_display,
+                                "team": home_team,
+                                "opponent": away_team,
+                                "bet_type": bet_type,
+                                "line": line_val,
                                 "best_odds": american_str,
                                 "sportsbook": bookie1,
                                 "edge_percentage": edge_pct,
@@ -146,7 +149,7 @@ def get_value_picks():
                 except (IndexError, KeyError):
                     continue
 
-    print(f"\n⚡ Run Complete. Spreadsheet data updated cleanly!")
+    print(f"\n⚡ Run Complete. Spreadsheet synced cleanly with your original Base44 columns!")
 
 if __name__ == "__main__":
     get_value_picks()
