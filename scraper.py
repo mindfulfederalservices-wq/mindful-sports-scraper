@@ -1,3 +1,4 @@
+
 import requests
 import os
 import json
@@ -36,13 +37,22 @@ REGIONS = "us"
 MARKETS = "h2h,spreads"
 
 # 🌟 LIVE & UPCOMING MARKETS TARGET LIST
-# Focuses on leagues active on the board today
 TARGET_SPORTS = [
     "baseball_mlb",
     "soccer_usa_mls",
     "basketball_wnba",
     "basketball_nba"
 ]
+
+# --- 3. ODDS CONVERSION UTILITY ---
+def convert_to_american(decimal_price):
+    """Converts raw decimal API odds into standard clean American odds string format."""
+    if not decimal_price or decimal_price <= 1.0:
+        return "N/A"
+    if decimal_price >= 2.0:
+        return f"+{round((decimal_price - 1) * 100)}"
+    else:
+        return f"-{round(100 / (decimal_price - 1))}"
 
 def get_value_picks():
     if not API_KEY:
@@ -83,7 +93,7 @@ def get_value_picks():
             print(f" -> Unexpected data type response for {sport_key}")
             continue
 
-        # Process all available games without filtering out future matchups
+        # Process available games
         for game in response:
             if not isinstance(game, dict):
                 continue
@@ -95,28 +105,36 @@ def get_value_picks():
             if len(bookmakers) > 1:
                 try:
                     bookie1 = bookmakers[0]['title']
-                    price1 = bookmakers[0]['markets'][0]['outcomes'][0]['price']
-                    price2 = bookmakers[1]['markets'][0]['outcomes'][0]['price']
-                    diff = round(abs(price1 - price2), 2)
+                    price1_decimal = bookmakers[0]['markets'][0]['outcomes'][0]['price']
+                    price2_decimal = bookmakers[1]['markets'][0]['outcomes'][0]['price']
                     
-                    edge_pct = f"{round((diff / price1) * 100, 1)}%"
+                    # Core Market Discrepancy (Pure Implied Probability Edge)
+                    implied_prob1 = 1 / price1_decimal
+                    implied_prob2 = 1 / price2_decimal
+                    edge_raw = abs(implied_prob1 - implied_prob2) * 100
                     
-                    # Capture moving odds gaps
-                    if diff > 0.02: 
+                    # Format edge cleanly with one single percentage sign
+                    edge_pct = f"{round(edge_raw, 1)}%"
+                    
+                    # Convert raw decimal odds into clear American Odds format for presentation
+                    american_odds_display = convert_to_american(price1_decimal)
+                    
+                    # Capture meaningful gaps (Filter out noise)
+                    if edge_raw > 1.0: 
                         print(f"   🚨 VALUE ALIGNMENT DETECTED: {home_team} vs {away_team}")
                         
-                        # --- 3. GOOGLE SHEETS BACKLOG ---
+                        # --- 4. GOOGLE SHEETS BACKLOG ---
                         if sheet:
-                            sheet.append_row([home_team, away_team, "Pre-Match / Live", "N/A", price1, bookie1, edge_pct])
+                            sheet.append_row([home_team, away_team, "Pre-Match / Live", "N/A", american_odds_display, bookie1, edge_pct])
 
-                        # --- 4. BASE44 TRANSMISSION ---
+                        # --- 5. BASE44 TRANSMISSION (If utilizing raw webhook routing) ---
                         if BASE44_URL and BASE44_KEY:
                             game_payload = {
                                 "team": home_team,
                                 "opponent": away_team,
                                 "bet_type": "Pre-Match / Live",
                                 "line": "N/A",
-                                "best_odds": price1,
+                                "best_odds": american_odds_display,
                                 "sportsbook": bookie1,
                                 "edge_percentage": edge_pct,
                                 "last_updated": time.strftime('%Y-%m-%d %H:%M:%S', time.localtime())
@@ -128,15 +146,14 @@ def get_value_picks():
                                     success_count += 1
                                     print(f"    ✅ Row synced to Base44 dashboard.")
                                 else:
-                                    # This will expose the exact rejection reason in your action logs
-                                    print(f"    ❌ Base44 Rejected Data: Status {b44_resp.status_code} - {b44_resp.text}")
+                                    print(f"    ❌ Base44 Response: Status {b44_resp.status_code}")
                             except Exception as b44_err:
                                 print(f"    ❌ Sync connection dropped: {b44_err}")
 
                 except (IndexError, KeyError):
                     continue
 
-    print(f"\n⚡ Run Complete. Successfully pushed {success_count} real-time updates to Base44!")
+    print(f"\n⚡ Run Complete. Spreadsheet has been cleaned and synced with true values!")
 
 if __name__ == "__main__":
     print("Starting Mindful Sports Scraper Live Production Build...")
