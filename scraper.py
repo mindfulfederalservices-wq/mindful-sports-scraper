@@ -52,7 +52,7 @@ def calculate_profit_on_100(numeric_odds):
     if numeric_odds > 0:
         return f"${float(numeric_odds):.2f}"
     elif numeric_odds < 0:
-        # FIXED: Corrected formula to properly evaluate standard minus odds payouts
+        # FIXED: Corrected formula to properly evaluate standard minus odds payouts ($100 stake baseline)
         profit = (100 / abs(numeric_odds)) * 100
         return f"${profit:.2f}"
     return "$0.00"
@@ -91,19 +91,18 @@ def get_value_picks():
             
             # UNIQUE ID DETECTOR: Sorts teams alphabetically to flag identical matchups 
             matchup_key = tuple(sorted([home_team, away_team]))
-            if matchup_key in seen_games:
-                continue
 
             if len(bookmakers) > 1:
                 try:
                     market_data = bookmakers[0]['markets'][0]
                     market_type = market_data['key']
                     bookie1 = bookmakers[0]['title']
-                    
-                    # Track if we successfully processed a valid alignment for this game
-                    processed_valid_alignment = False
 
                     for outcome in market_data.get('outcomes', []):
+                        # FIXED: Instantly skip if this matchup key has already been logged on this run execution
+                        if matchup_key in seen_games:
+                            continue
+
                         betting_team = outcome.get('name')
                         
                         # FORCE-IGNORE THE SOCCER TIE OUTCOME ROW ENTIRELY
@@ -155,6 +154,9 @@ def get_value_picks():
                         if edge_raw > 1.0: 
                             print(f"    🚨 VALUE ALIGNMENT DETECTED: {betting_team} (Vs {opponent_team})")
                             
+                            # Add matchup to the uniqueness verification map immediately upon detection
+                            seen_games.add(matchup_key)
+
                             # Append row data to our local memory cache list
                             all_sheet_rows.append([
                                 betting_team, 
@@ -183,12 +185,6 @@ def get_value_picks():
                                     requests.post(BASE44_URL, json=game_payload, headers=base44_headers)
                                 except:
                                     pass
-                            
-                            processed_valid_alignment = True
-
-                    # If this match was evaluated and cataloged, lock the matchup key to drop future variations
-                    if processed_valid_alignment:
-                        seen_games.add(matchup_key)
 
                 except (IndexError, KeyError):
                     continue
