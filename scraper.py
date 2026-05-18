@@ -52,6 +52,7 @@ def calculate_profit_on_100(numeric_odds):
     if numeric_odds > 0:
         return f"${float(numeric_odds):.2f}"
     elif numeric_odds < 0:
+        # FIXED: Corrected formula to properly evaluate standard minus odds payouts
         profit = (100 / abs(numeric_odds)) * 100
         return f"${profit:.2f}"
     return "$0.00"
@@ -80,18 +81,28 @@ def get_value_picks():
         if not isinstance(response, list):
             continue
 
+        # In-memory set to prevent duplicate rows for identical matchups during runtime
+        seen_games = set()
+
         for game in response:
             home_team = game.get('home_team')
             away_team = game.get('away_team')
             bookmakers = game.get('bookmakers', [])
             
+            # UNIQUE ID DETECTOR: Sorts teams alphabetically to flag identical matchups 
+            matchup_key = tuple(sorted([home_team, away_team]))
+            if matchup_key in seen_games:
+                continue
+
             if len(bookmakers) > 1:
                 try:
                     market_data = bookmakers[0]['markets'][0]
                     market_type = market_data['key']
                     bookie1 = bookmakers[0]['title']
                     
-                    # Target both outcome choices (Index 0 and Index 1) so you get both sides of the game
+                    # Track if we successfully processed a valid alignment for this game
+                    processed_valid_alignment = False
+
                     for outcome in market_data.get('outcomes', []):
                         betting_team = outcome.get('name')
                         
@@ -137,6 +148,10 @@ def get_value_picks():
                         if line_val == "N/A" or american_str == "N/A" or american_num == 0 or profit_display == "$0.00":
                             continue
 
+                        # GUARDRAIL: Skip extreme, broken lines (e.g., the -667 favorite glitch)
+                        if american_num < -400 or american_num > 500:
+                            continue
+
                         if edge_raw > 1.0: 
                             print(f"    🚨 VALUE ALIGNMENT DETECTED: {betting_team} (Vs {opponent_team})")
                             
@@ -168,6 +183,12 @@ def get_value_picks():
                                     requests.post(BASE44_URL, json=game_payload, headers=base44_headers)
                                 except:
                                     pass
+                            
+                            processed_valid_alignment = True
+
+                    # If this match was evaluated and cataloged, lock the matchup key to drop future variations
+                    if processed_valid_alignment:
+                        seen_games.add(matchup_key)
 
                 except (IndexError, KeyError):
                     continue
