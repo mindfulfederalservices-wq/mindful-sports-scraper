@@ -1,10 +1,11 @@
 name: Mindful Sports Scraper Autopilot
 
 on:
-  # schedule:
-  #   - cron: '*/5 * * * *'  # PAUSED: Commented out so it won't burn your 500 free monthly credits automatically
+  schedule:
+    # AUTOMATED: Runs exactly once a day at 5:00 AM PDT (12:00 PM UTC) to protect your 290 credits
+    - cron: '0 12 * * *'
   
-  workflow_dispatch:       # ACTIVE: Keeps your manual "Run workflow" button active for safe testing
+  workflow_dispatch:       # ACTIVE: Keeps your manual "Run workflow" button active just in case
 
 jobs:
   scrape-and-stream:
