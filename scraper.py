@@ -14,8 +14,20 @@ try:
     client = gspread.authorize(creds)
     
     # Target sheet check
-    sheet = client.open("Mindful Sports Scraper Data").sheet1
-    print("Successfully connected to Google Sheets!")
+    workbook = client.open("Mindful Sports Scraper Data")
+    sheet = workbook.sheet1
+    print("Successfully connected to Google Sheets (Active Dashboard)!")
+    
+    # Connect to or create your historical archive tab
+    try:
+        history_sheet = workbook.worksheet("Past_Results")
+        print("Connected to existing Past_Results tab.")
+    except gspread.exceptions.WorksheetNotFound:
+        # If it doesn't exist yet, create it with matching columns + status tracker headers
+        history_headers = ["Team", "Opponent", "Bet Type", "Line", "Best Odds", "Sportsbook", "Edge %", "Profit on $100 Stake", "Status", "Final Score"]
+        history_sheet = workbook.add_worksheet(title="Past_Results", rows="1000", cols="10")
+        history_sheet.append_row(history_headers)
+        print("Created new Past_Results tab with tracking headers.")
     
     # EXACT column structure matching your original Base44 fields
     headers_layout = ["Team", "Opponent", "Bet Type", "Line", "Best Odds", "Sportsbook", "Edge %", "Profit on $100 Stake"]
@@ -26,6 +38,7 @@ try:
 except Exception as e:
     print(f"Google Sheets Connection Error: {e}")
     sheet = None
+    history_sheet = None
 
 # --- 2. CONFIGURATION SETUP ---
 BASE44_URL = os.environ.get("BASE44_APP_URL")
@@ -52,7 +65,6 @@ def calculate_profit_on_100(numeric_odds):
     if numeric_odds > 0:
         return f"${float(numeric_odds):.2f}"
     elif numeric_odds < 0:
-        # FIXED: Corrected formula to properly evaluate standard minus odds payouts ($100 stake baseline)
         profit = (100 / abs(numeric_odds)) * 100
         return f"${profit:.2f}"
     return "$0.00"
@@ -63,8 +75,6 @@ def get_value_picks():
         return
 
     base44_headers = {"Authorization": f"Bearer {BASE44_KEY}", "Content-Type": "application/json"} if BASE44_KEY else {}
-    
-    # Master list to collect all batch data for Google Sheets
     all_sheet_rows = []
 
     for sport_key in TARGET_SPORTS:
@@ -81,15 +91,12 @@ def get_value_picks():
         if not isinstance(response, list):
             continue
 
-        # In-memory set to prevent duplicate rows for identical matchups during runtime
         seen_games = set()
 
         for game in response:
             home_team = game.get('home_team')
             away_team = game.get('away_team')
             bookmakers = game.get('bookmakers', [])
-            
-            # UNIQUE ID DETECTOR: Sorts teams alphabetically to flag identical matchups 
             matchup_key = tuple(sorted([home_team, away_team]))
 
             if len(bookmakers) > 1:
@@ -99,19 +106,15 @@ def get_value_picks():
                     bookie1 = bookmakers[0]['title']
 
                     for outcome in market_data.get('outcomes', []):
-                        # FIXED: Instantly skip if this matchup key has already been logged on this run execution
                         if matchup_key in seen_games:
                             continue
 
                         betting_team = outcome.get('name')
-                        
-                        # FORCE-IGNORE THE SOCCER TIE OUTCOME ROW ENTIRELY
                         if not betting_team or betting_team.lower() == "draw":
                             continue
                             
                         opponent_team = away_team if betting_team == home_team else home_team
                         
-                        # Split Bet Type and Line dynamically to map to individual columns
                         if market_type == 'h2h':
                             bet_type = "Moneyline"
                             line_val = "ML"
@@ -125,7 +128,6 @@ def get_value_picks():
 
                         price1_decimal = outcome['price']
                         
-                        # Find matching comparison book odds to calculate true variance edge
                         try:
                             comp_market = bookmakers[1]['markets'][0]
                             comp_outcomes = comp_market.get('outcomes', [])
@@ -133,31 +135,24 @@ def get_value_picks():
                         except (StopIteration, IndexError, KeyError):
                             price2_decimal = price1_decimal
 
-                        # Exact Edge Percentage Calculation
                         implied_prob1 = 1 / price1_decimal
                         implied_prob2 = 1 / price2_decimal
                         edge_raw = abs(implied_prob1 - implied_prob2) * 100
                         edge_pct = round(edge_raw, 1)
                         
-                        # Convert odds and get payout values
                         american_num, american_str = convert_to_american(price1_decimal)
                         profit_display = calculate_profit_on_100(american_num)
                         
-                        # --- CRITICAL PRODUCTION DATA GUARD RAILS ---
                         if line_val == "N/A" or american_str == "N/A" or american_num == 0 or profit_display == "$0.00":
                             continue
 
-                        # GUARDRAIL: Skip extreme, broken lines (e.g., the -667 favorite glitch)
                         if american_num < -400 or american_num > 500:
                             continue
 
                         if edge_raw > 1.0: 
                             print(f"    🚨 VALUE ALIGNMENT DETECTED: {betting_team} (Vs {opponent_team})")
-                            
-                            # Add matchup to the uniqueness verification map immediately upon detection
                             seen_games.add(matchup_key)
 
-                            # Append row data to our local memory cache list
                             all_sheet_rows.append([
                                 betting_team, 
                                 opponent_team, 
@@ -169,7 +164,6 @@ def get_value_picks():
                                 profit_display
                             ])
 
-                            # --- LIVE ROUTING TRANSMISSION ---
                             if BASE44_URL and BASE44_KEY:
                                 game_payload = {
                                     "team": betting_team,
@@ -189,16 +183,82 @@ def get_value_picks():
                 except (IndexError, KeyError):
                     continue
 
-    # --- 5. SINGLE BATCH PUSH TO GOOGLE SHEETS ---
     if sheet and all_sheet_rows:
         try:
             print(f"\n📥 Batch uploading {len(all_sheet_rows)} clean value alerts to Google Sheets...")
             sheet.append_rows(all_sheet_rows)
             print("Spreadsheet synced successfully using 1 API token credit!")
+            
+            # --- AUTOMATED TRACK LOGGING PIPELINE ---
+            # Automatically append a copy of these games to the history tab as "PENDING"
+            if history_sheet:
+                history_rows = []
+                for row in all_sheet_rows:
+                    # Append status="PENDING" and score="N/A" to match historical columns
+                    history_rows.append(row + ["PENDING", "N/A"])
+                history_sheet.append_rows(history_rows)
+                print("Pending plays logged safely into Past_Results archive.")
+                
         except Exception as sheet_err:
             print(f"Failed to batch write rows to Sheet: {sheet_err}")
 
     print(f"\n⚡ Run Complete. Spreadsheet synced cleanly with your original Base44 columns!")
 
+# --- 5. 100% FREE ESPN RESULTS GRADER (COSTS 0 ODDS CREDITS) ---
+def grade_past_results():
+    if not history_sheet:
+        print("History sheet not accessible. Skipping grading.")
+        return
+
+    print("\n🔄 Running Free ESPN Score Check Pipeline...")
+    
+    # Fetch all endpoints for free scoring assets
+    sport_urls = {
+        "baseball_mlb": "https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard",
+        "soccer_usa_mls": "https://site.api.espn.com/apis/site/v2/sports/soccer/usa.1/scoreboard",
+        "basketball_wnba": "https://site.api.espn.com/apis/site/v2/sports/basketball/wnba/scoreboard"
+    }
+
+    # Gather clean score catalog from active endpoints
+    live_winners = {}
+    for sport, endpoint_url in sport_urls.items():
+        try:
+            res = requests.get(endpoint_url).json()
+            for event in res.get('events', []):
+                if event['status']['type']['name'] == "STATUS_FINAL":
+                    competitors = event['competitions'][0]['competitors']
+                    score_string = " - ".join([f"{t['team']['displayName']}: {t.get('score')}" for t in competitors])
+                    
+                    for team in competitors:
+                        t_name = team['team']['displayName']
+                        if team.get('winner', False):
+                            live_winners[t_name] = {"winner": True, "score": score_string}
+        except:
+            print(f"Skipping network read for {sport} score lines...")
+
+    # Scan the history sheet to update "PENDING" matches
+    all_history = history_sheet.get_all_values()
+    if len(all_history) <= 1:
+        print("No matches in archive to grade.")
+        return
+
+    for idx, row in enumerate(all_history[1:], start=2):
+        # Columns: 0=Team, 7=Profit, 8=Status, 9=Score
+        if len(row) >= 9 and row[8] == "PENDING":
+            picked_team = row[0]
+            
+            if picked_team in live_winners:
+                final_score = live_winners[picked_team]["score"]
+                status_label = "🟢 WIN" if live_winners[picked_team]["winner"] else "🔴 LOSS"
+                
+                # Update specific row directly in Google Sheets
+                history_sheet.update_cell(idx, 9, status_label)  # Update Status Column
+                history_sheet.update_cell(idx, 10, final_score)  # Update Score Column
+                print(f"Updated {picked_team}: {status_label}")
+
 if __name__ == "__main__":
+    # 1. Run your standard odds calculation using your token credit
     get_value_picks()
+    
+    # 2. Immediately crosscheck ESPN to turn completed pending logs into active wins/losses
+    grade_past_results()
