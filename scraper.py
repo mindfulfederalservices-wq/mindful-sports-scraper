@@ -13,23 +13,19 @@ try:
     creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
     client = gspread.authorize(creds)
     
-    # Target sheet check
     workbook = client.open("Mindful Sports Scraper Data")
     sheet = workbook.sheet1
     print("Successfully connected to Google Sheets (Active Dashboard)!")
     
-    # Connect to or create your historical archive tab
     try:
         history_sheet = workbook.worksheet("Past_Results")
         print("Connected to existing Past_Results tab.")
     except gspread.exceptions.WorksheetNotFound:
-        # If it doesn't exist yet, create it with matching columns + status tracker headers
         history_headers = ["Team", "Opponent", "Bet Type", "Line", "Best Odds", "Sportsbook", "Edge %", "Profit on $100 Stake", "Status", "Final Score"]
         history_sheet = workbook.add_worksheet(title="Past_Results", rows="1000", cols="10")
         history_sheet.append_row(history_headers)
         print("Created new Past_Results tab with tracking headers.")
     
-    # EXACT column structure matching your original Base44 fields
     headers_layout = ["Team", "Opponent", "Bet Type", "Line", "Best Odds", "Sportsbook", "Edge %", "Profit on $100 Stake"]
     sheet.clear()
     sheet.append_row(headers_layout)
@@ -60,23 +56,21 @@ def convert_to_american(decimal_price):
         val = round(100 / (decimal_price - 1))
         return -val, f"-{val}"
 
-# --- 4. PROFIT ON METRIC CALCULATION (FIXED FOR BASE44 SUMMING) ---
+# --- 4. PROFIT ON METRIC CALCULATION ---
 def calculate_profit_on_100(numeric_odds):
     try:
         odds = int(numeric_odds)
         if odds == 0:
             return 0.00
-            
         if odds > 0:
-            # Plus odds (e.g., +150 pays 150.00). Returns clean number, NO '$' symbol.
             return round(float(odds), 2)
         else:
-            # Minus odds (e.g., -110 pays 90.91). Returns clean number, NO '$' symbol.
             profit = (100 / abs(odds)) * 100
             return round(profit, 2)
     except Exception:
         return 0.00
 
+# --- 4. SOLVED VALUE FILTER LOOP ---
 def get_value_picks():
     if not API_KEY:
         print("Error: No Odds API Key found. Check GitHub Secrets.")
@@ -99,7 +93,8 @@ def get_value_picks():
         if not isinstance(response, list):
             continue
 
-        seen_games = set()
+        # FIX: Reset 'seen' map per individual league type loop execution block
+        seen_games_this_sport = set()
 
         for game in response:
             home_team = game.get('home_team')
@@ -114,7 +109,7 @@ def get_value_picks():
                     bookie1 = bookmakers[0]['title']
 
                     for outcome in market_data.get('outcomes', []):
-                        if matchup_key in seen_games:
+                        if matchup_key in seen_games_this_sport:
                             continue
 
                         betting_team = outcome.get('name')
@@ -131,8 +126,7 @@ def get_value_picks():
                             pts = outcome.get('point', 0)
                             line_val = f"+{pts}" if pts > 0 else str(pts)
                         else:
-                            bet_type = "Pre-Match"
-                            line_val = "N/A"
+                            continue
 
                         price1_decimal = outcome['price']
                         
@@ -157,9 +151,10 @@ def get_value_picks():
                         if american_num < -400 or american_num > 500:
                             continue
 
+                        # Strict minimum edge barrier check
                         if edge_raw > 1.0: 
                             print(f"    🚨 VALUE ALIGNMENT DETECTED: {betting_team} (Vs {opponent_team})")
-                            seen_games.add(matchup_key)
+                            seen_games_this_sport.add(matchup_key)
 
                             all_sheet_rows.append([
                                 betting_team, 
@@ -193,7 +188,7 @@ def get_value_picks():
 
     if sheet and all_sheet_rows:
         try:
-            print(f"\n📥 Batch uploading {len(all_sheet_rows)} clean value alerts to Google Sheets...")
+            print(f"\n📥 Batch uploading {len(all_sheet_rows)} isolated alerts to Google Sheets...")
             sheet.append_rows(all_sheet_rows)
             print("Spreadsheet synced successfully using 1 API token credit!")
             
@@ -209,7 +204,7 @@ def get_value_picks():
 
     print(f"\n⚡ Run Complete. Spreadsheet synced cleanly with your original Base44 columns!")
 
-# --- 5. FREE ESPN RESULTS GRADER ---
+# --- 5. ROBUST RESILIENT RESULTS GRADER (NBA ADDED) ---
 def grade_past_results():
     if not history_sheet:
         print("History sheet not accessible. Skipping grading.")
@@ -220,7 +215,8 @@ def grade_past_results():
     sport_urls = {
         "baseball_mlb": "https://site.api.espn.com/apis/site/v2/sports/baseball/mlb/scoreboard",
         "soccer_usa_mls": "https://site.api.espn.com/apis/site/v2/sports/soccer/usa.1/scoreboard",
-        "basketball_wnba": "https://site.api.espn.com/apis/site/v2/sports/basketball/wnba/scoreboard"
+        "basketball_wnba": "https://site.api.espn.com/apis/site/v2/sports/basketball/wnba/scoreboard",
+        "basketball_nba": "https://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard"
     }
 
     live_winners = {}
@@ -228,33 +224,58 @@ def grade_past_results():
         try:
             res = requests.get(endpoint_url).json()
             for event in res.get('events', []):
-                if event['status']['type']['name'] == "STATUS_FINAL":
+                # Target complete games cleanly
+                if event['status']['type']['name'] in ["STATUS_FINAL", "STATUS_POSTPONED"]:
                     competitors = event['competitions'][0]['competitors']
                     score_string = " - ".join([f"{t['team']['displayName']}: {t.get('score')}" for t in competitors])
                     
                     for team in competitors:
                         t_name = team['team']['displayName']
-                        if team.get('winner', False):
-                            live_winners[t_name] = {"winner": True, "score": score_string}
-        except:
-            print(f"Skipping network read for {sport} score lines...")
+                        is_winner = team.get('winner', False)
+                        
+                        # Store structural layout mapping for safe lookup
+                        live_winners[t_name] = {"winner": is_winner, "score": score_string}
+                        
+                        # Catch alternate names or short names (e.g. "Red Bulls" vs "New York Red Bulls")
+                        short_name = team['team'].get('shortDisplayName', '')
+                        if short_name:
+                            live_winners[short_name] = {"winner": is_winner, "score": score_string}
+        except Exception as e:
+            print(f"Skipping network read for {sport} score lines: {e}")
 
-    all_history = history_sheet.get_all_values()
+    try:
+        all_history = history_sheet.get_all_values()
+    except Exception as e:
+        print(f"Error accessing history sheet records: {e}")
+        return
+
     if len(all_history) <= 1:
         print("No matches in archive to grade.")
         return
 
+    # Scan and match cells
     for idx, row in enumerate(all_history[1:], start=2):
-        if len(row) >= 9 and row[8] == "PENDING":
+        if len(row) >= 9 and "PENDING" in row[8]:
             picked_team = row[0]
+            matched = False
             
-            if picked_team in live_winners:
-                final_score = live_winners[picked_team]["score"]
-                status_label = "🟢 WIN" if live_winners[picked_team]["winner"] else "🔴 LOSS"
-                
-                history_sheet.update_cell(idx, 9, status_label)
-                history_sheet.update_cell(idx, 10, final_score)
-                print(f"Updated {picked_team}: {status_label}")
+            # Substring key validation routine
+            for key in live_winners:
+                if key.lower() in picked_team.lower() or picked_team.lower() in key.lower():
+                    final_score = live_winners[key]["score"]
+                    status_label = "🟢 WIN" if live_winners[key]["winner"] else "🔴 LOSS"
+                    
+                    try:
+                        history_sheet.update_cell(idx, 9, status_label)
+                        history_sheet.update_cell(idx, 10, final_score)
+                        print(f"Settled {picked_team}: {status_label}")
+                    except Exception as cell_err:
+                        print(f"Failed to update row {idx}: {cell_err}")
+                    matched = True
+                    break
+            
+            if not matched:
+                print(f"Match for {picked_team} is still live or hasn't updated to STATUS_FINAL yet.")
 
 if __name__ == "__main__":
     get_value_picks()
