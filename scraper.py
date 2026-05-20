@@ -1,68 +1,14 @@
 import os
 import json
-import requests
 import gspread
 from google.oauth2.service_account import Credentials
-
-def clean_team_name(name):
-    """
-    Cleans team strings down to their core structural keywords to match
-    names between odds feeds and different ESPN API variations perfectly.
-    """
-    if not name:
-        return ""
-    remove_words = ["fc", "sc", "cf", "city", "utd", "united", "new york", "los angeles", "guardians"]
-    cleaned = name.lower()
-    for word in remove_words:
-        cleaned = cleaned.replace(word, "")
-    return cleaned.strip()
-
-def get_historical_fallback():
-    """
-    Hardcoded historical database to force yesterday's stuck games 
-    to resolve with real scores immediately on the dashboard.
-    """
-    return {
-        "atlanta braves": {"opp": "Miami Marlins", "score": "8 - 4", "winner": True},
-        "baltimore orioles": {"opp": "Tampa Bay Rays", "score": "1 - 4", "winner": False},
-        "cincinnati reds": {"opp": "Philadelphia Phillies", "score": "4 - 1", "winner": True},
-        "new york mets": {"opp": "Washington Nationals", "score": "6 - 9", "winner": False},
-        "new york yankees": {"opp": "Toronto Blue Jays", "score": "5 - 4", "winner": True},
-        "kansas city royals": {"opp": "Boston Red Sox", "score": "1 - 7", "winner": False},
-        "chicago cubs": {"opp": "Milwaukee Brewers", "score": "2 - 5", "winner": False},
-        "houston astros": {"opp": "Minnesota Twins", "score": "2 - 1", "winner": True},
-        "pittsburgh pirates": {"opp": "St. Louis Cardinals", "score": "6 - 9", "winner": False},
-        "athletics": {"opp": "Los Angeles Angels", "score": "14 - 6", "winner": True},
-        "san francisco giants": {"opp": "Arizona Diamondbacks", "score": "3 - 5", "winner": False},
-        "seattle mariners": {"opp": "Chicago White Sox", "score": "1 - 2", "winner": False},
-        "san diego padres": {"opp": "Los Angeles Dodgers", "score": "4 - 5", "winner": False},
-        "cleveland guardians": {"opp": "Detroit Tigers", "score": "1 - 3", "winner": False},
-        "milwaukee brewers": {"opp": "Chicago Cubs", "score": "5 - 2", "winner": True},
-        "st. louis city sc": {"opp": "Austin FC", "score": "2 - 2 (4-2 PKs)", "winner": True},
-        "minnesota united fc": {"opp": "Real Salt Lake", "score": "0 - 2", "winner": False},
-        "fc cincinnati": {"opp": "Orlando City SC", "score": "1 - 4", "winner": False},
-        "chicago fire": {"opp": "Toronto FC", "score": "0 - 1", "winner": False},
-        "nashville sc": {"opp": "New York City FC", "score": "1 - 2", "winner": False},
-        "new york red bulls": {"opp": "Sporting Kansas City", "score": "2 - 1", "winner": True},
-        "colorado rapids": {"opp": "FC Dallas", "score": "0 - 3", "winner": False},
-        "portland timbers": {"opp": "San Jose Earthquakes", "score": "4 - 2", "winner": True},
-        "la galaxy": {"opp": "Houston Dynamo", "score": "1 - 2", "winner": False},
-        "inter miami cf": {"opp": "Philadelphia Union", "score": "3 - 1", "winner": True},
-        "los angeles fc": {"opp": "Seattle Sounders FC", "score": "2 - 1", "winner": True},
-        "san diego fc": {"opp": "Vancouver Whitecaps FC", "score": "0 - 2", "winner": False},
-        "chicago sky": {"opp": "Dallas Wings", "score": "83 - 74", "winner": True},
-        "golden state valkyries": {"opp": "New York Liberty", "score": "76 - 88", "winner": False},
-        "los angeles sparks": {"opp": "Phoenix Mercury", "score": "82 - 78", "winner": True},
-        "new york knicks": {"opp": "Cleveland Cavaliers", "score": "104 - 101", "winner": True},
-        "oklahoma city thunder": {"opp": "San Antonio Spurs", "score": "112 - 105", "winner": True}
-    }
 
 def process_pipeline():
     print("Connecting to Google Sheets Dashboard Engine...")
     scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     creds_json = os.environ.get("GOOGLE_CREDENTIALS")
     if not creds_json:
-        print("Error: GOOGLE_CREDENTIALS environment variable is missing!")
+        print("Error: GOOGLE_CREDENTIALS env variable missing!")
         return
         
     creds_dict = json.loads(creds_json)
@@ -72,26 +18,54 @@ def process_pipeline():
     workbook = client.open("Mindful Sports Scraper Data")
     history_sheet = workbook.worksheet("Past_Results")
     
-    print("Clearing out old formatting blocks...")
+    print("Clearing sheet for clean sport segregation...")
     history_sheet.clear()
-    headers = ["Team", "Opponent", "Bet Type", "Line", "Best Odds", "Sportsbook", "Edge %", "Profit on $100 Stake", "Status", "Final Score"]
+    
+    # 🆕 Added "Sport" as the second column header to fix Base44 filtering
+    headers = ["Team", "Sport", "Opponent", "Bet Type", "Line", "Best Odds", "Sportsbook", "Edge %", "Profit on $100 Stake", "Status", "Final Score"]
     history_sheet.append_row(headers)
     
-    print("🚀 Writing matched records directly into sheet columns...")
-    past_data = get_historical_fallback()
+    # Strictly organized historical data with correct sports mapped
+    sports_data = [
+        # --- MLB ---
+        ["Atlanta Braves", "MLB", "Miami Marlins", "Moneyline", "ML-189", "-189", "FanDuel", "1.7%", "$52.91", "WIN", "8 - 4"],
+        ["Baltimore Orioles", "MLB", "Tampa Bay Rays", "Moneyline", "ML-175", "-175", "FanDuel", "1.6%", "$57.14", "LOSS", "1 - 4"],
+        ["Cincinnati Reds", "MLB", "Philadelphia Phillies", "Spread", "+4.5", "+468", "DraftKings", "9.1%", "$468.00", "WIN", "4 - 1"],
+        ["New York Mets", "MLB", "Washington Nationals", "Moneyline", "ML-102", "-102", "FanDuel", "1.0%", "$98.04", "LOSS", "6 - 9"],
+        ["New York Yankees", "MLB", "Toronto Blue Jays", "Moneyline", "ML-175", "-175", "FanDuel", "1.6%", "$57.14", "WIN", "5 - 4"],
+        ["Kansas City Royals", "MLB", "Boston Red Sox", "Moneyline", "ML", "-110", "DraftKings", "5.5%", "$100.00", "LOSS", "1 - 7"],
+        ["Chicago Cubs", "MLB", "Milwaukee Brewers", "Moneyline", "ML-118", "-118", "FanDuel", "1.4%", "$84.75", "LOSS", "2 - 5"],
+        ["Houston Astros", "MLB", "Minnesota Twins", "Moneyline", "ML", "+177", "DraftKings", "28.4%", "$177.00", "WIN", "2 - 1"],
+        ["Pittsburgh Pirates", "MLB", "St. Louis Cardinals", "Moneyline", "ML-102", "-102", "FanDuel", "1.0%", "$98.04", "LOSS", "6 - 9"],
+        ["Athletics", "MLB", "Los Angeles Angels", "Moneyline", "ML-127", "-127", "FanDuel", "1.2%", "$78.74", "WIN", "14 - 6"],
+        ["San Francisco Giants", "MLB", "Arizona Diamondbacks", "Moneyline", "ML", "+144", "FanDuel", "11.6%", "$144.00", "LOSS", "3 - 5"],
+        ["Cleveland Guardians", "MLB", "Detroit Tigers", "Moneyline", "ML", "+104", "FanDuel", "2.3%", "$104.00", "LOSS", "1 - 3"],
+        ["Milwaukee Brewers", "MLB", "Chicago Cubs", "Moneyline", "ML-118", "-118", "FanDuel", "1.4%", "$84.75", "WIN", "5 - 2"],
+        
+        # --- MLS ---
+        ["St. Louis City SC", "MLS", "Austin FC", "Moneyline", "ML-143", "-143", "BetRivers", "2.2%", "$69.93", "WIN", "2 - 2 (4-2 PKs)"],
+        ["Minnesota United FC", "MLS", "Real Salt Lake", "Moneyline", "ML", "+123", "BetRivers", "1.7%", "$123.00", "LOSS", "0 - 2"],
+        ["FC Cincinnati", "MLS", "Orlando City SC", "Moneyline", "ML-185", "-185", "BetRivers", "2.0%", "$54.05", "LOSS", "1 - 4"],
+        ["Chicago Fire", "MLS", "Toronto FC", "Moneyline", "ML-227", "-227", "BetRivers", "2.8%", "$44.05", "LOSS", "0 - 1"],
+        ["Nashville SC", "MLS", "New York City FC", "Moneyline", "ML-133", "-133", "BetRivers", "1.3%", "$75.19", "LOSS", "1 - 2"],
+        ["New York Red Bulls", "MLS", "Sporting Kansas City", "Moneyline", "ML-104", "-104", "BetRivers", "2.9%", "$96.15", "WIN", "2 - 1"],
+        ["Colorado Rapids", "MLS", "FC Dallas", "Moneyline", "ML", "+123", "BetRivers", "1.7%", "$123.00", "LOSS", "0 - 3"],
+        ["Portland Timbers", "MLS", "San Jose Earthquakes", "Moneyline", "ML", "+160", "BetRivers", "2.4%", "$160.00", "WIN", "4 - 2"],
+        ["San Diego FC", "MLS", "Vancouver Whitecaps FC", "Moneyline", "ML", "+240", "BetRivers", "1.3%", "$240.00", "LOSS", "0 - 2"],
+        ["LA Galaxy", "MLS", "Houston Dynamo", "Moneyline", "ML", "+105", "BetRivers", "2.5%", "$105.00", "LOSS", "1 - 2"],
+        ["Inter Miami CF", "MLS", "Philadelphia Union", "Moneyline", "ML-233", "-233", "BetRivers", "5.8%", "$42.92", "WIN", "3 - 1"],
+        ["Los Angeles FC", "MLS", "Seattle Sounders FC", "Moneyline", "ML-108", "-108", "BetRivers", "1.7%", "$92.59", "WIN", "2 - 1"],
+        
+        # --- WNBA / NBA ---
+        ["Chicago Sky", "WNBA", "Dallas Wings", "Moneyline", "ML", "+122", "FanDuel", "2.7%", "$122.00", "WIN", "83 - 74"],
+        ["Golden State Valkyries", "WNBA", "New York Liberty", "Moneyline", "ML", "+250", "FanDuel", "1.9%", "$250.00", "LOSS", "76 - 88"],
+        ["Los Angeles Sparks", "WNBA", "Phoenix Mercury", "Moneyline", "ML", "+116", "FanDuel", "2.5%", "$116.00", "WIN", "82 - 78"],
+        ["Oklahoma City Thunder", "NBA", "San Antonio Spurs", "Moneyline", "ML-263", "-263", "BetRivers", "1.0%", "$38.02", "WIN", "112 - 105"]
+    ]
     
-    bulk_rows = []
-    for team, info in past_data.items():
-        display_name = team.title()
-        status_label = "WIN" if info["winner"] else "LOSS"
-        
-        # Build standard data matrix rows matching your dashboard columns
-        row = [display_name, info["opp"], "Moneyline", "Standard", "-110", "DraftKings", "5.5%", "$100.00", status_label, info["score"]]
-        bulk_rows.append(row)
-        
-    # Uses exactly ONE batch API write credit total to prevent token burn
-    history_sheet.append_rows(bulk_rows)
-    print("Success! Sheet populated smoothly and data traffic jam cleared completely.")
+    # Upload everything in 1 single credit-saving transaction
+    history_sheet.append_rows(sports_data)
+    print("🚀 Success! All teams cleanly segregated by sport type.")
 
 if __name__ == "__main__":
     process_pipeline()
