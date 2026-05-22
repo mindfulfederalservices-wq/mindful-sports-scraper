@@ -5,8 +5,11 @@ from google.oauth2.service_account import Credentials
 
 def process_pipeline():
     print("Connecting to Google Sheets Dashboard Engine...")
+    
+    # 1. Setup Google Sheets Authentication
     scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     creds_json = os.environ.get("GOOGLE_CREDENTIALS")
+    
     if not creds_json:
         print("Error: GOOGLE_CREDENTIALS env variable missing!")
         return
@@ -15,17 +18,18 @@ def process_pipeline():
     creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
     client = gspread.authorize(creds)
     
+    # 2. Open the Sheet
     workbook = client.open("Mindful Sports Scraper Data")
     history_sheet = workbook.worksheet("Past_Results")
     
     print("Clearing sheet for clean sport segregation...")
     history_sheet.clear()
     
-    # 🆕 Added "Sport" as the second column header to fix Base44 filtering
+    # 3. Define Headers
     headers = ["Team", "Sport", "Opponent", "Bet Type", "Line", "Best Odds", "Sportsbook", "Edge %", "Profit on $100 Stake", "Status", "Final Score"]
     history_sheet.append_row(headers)
     
-    # Strictly organized historical data with correct sports mapped
+    # 4. Organized Sports Data (The "Source of Truth")
     sports_data = [
         # --- MLB ---
         ["Atlanta Braves", "MLB", "Miami Marlins", "Moneyline", "ML-189", "-189", "FanDuel", "1.7%", "$52.91", "WIN", "8 - 4"],
@@ -63,7 +67,7 @@ def process_pipeline():
         ["Oklahoma City Thunder", "NBA", "San Antonio Spurs", "Moneyline", "ML-263", "-263", "BetRivers", "1.0%", "$38.02", "WIN", "112 - 105"]
     ]
     
-    # Upload everything in 1 single credit-saving transaction
+    # 5. Final Batch Upload
     history_sheet.append_rows(sports_data)
     print("🚀 Success! All teams cleanly segregated by sport type.")
 
