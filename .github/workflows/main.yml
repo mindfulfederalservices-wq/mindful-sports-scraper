@@ -2,11 +2,11 @@ name: Mindful Sports Scraper Autopilot
 
 on:
   schedule:
-    # AUTOMATED: Runs exactly once a day at 5:00 AM PDT (12:00 PM UTC) to protect your 290 credits
+    # AUTOMATED: Runs exactly once a day at 12:00 PM UTC (5:00 AM PDT)
     - cron: '0 12 * * *'
   
-  workflow_dispatch:       # ACTIVE: Keeps your manual "Run workflow" button active just in case
-
+  workflow_dispatch:       # ACTIVE: Keeps your manual "Run workflow" button active
+    
 jobs:
   scrape-and-stream:
     runs-on: ubuntu-latest
